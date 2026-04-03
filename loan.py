@@ -1,6 +1,9 @@
 import streamlit as st
 import pickle
 import numpy as np
+import shap
+import matplotlib.pyplot as plt
+
 
 # Page config
 st.set_page_config(page_title="Loan Prediction App", page_icon="💰", layout="wide")
@@ -8,6 +11,12 @@ st.set_page_config(page_title="Loan Prediction App", page_icon="💰", layout="w
 # Load model
 model = pickle.load(open("loan_model.pkl", "rb"))
 scaler = pickle.load(open("scaler.pkl", "rb"))
+
+import pandas as pd
+
+
+explainer = shap.Explainer(model)
+
 
 # Title
 st.markdown("<h1 style='text-align: center; color: #4CAF50;'>💰 Loan Approval Prediction</h1>", unsafe_allow_html=True)
@@ -48,6 +57,7 @@ with col2:
     st.write(f"Commercial: {com_assets}")
     st.write(f"Bank: {bank_assets}")
 
+
 # Prediction button
 st.markdown("---")
 
@@ -55,24 +65,79 @@ if st.button("🚀 Predict Loan Status"):
 
     total_assets = res_assets + com_assets + lux_assets + bank_assets
 
-    
     input_data = np.array([[dependents, education, self_employed,
                             income, loan_amount, loan_term,
                             cibil, res_assets, com_assets,
                             lux_assets, bank_assets, total_assets]])
-    
+
     input_data = scaler.transform(input_data)
-    
+
     prediction = model.predict(input_data)
     prob = model.predict_proba(input_data)
 
     st.markdown("---")
-    
+
+    # =========================
+    # RESULT
+    # =========================
     if prediction[0] == 0:
         st.success("✅ Loan Approved")
-        st.balloons()
     else:
         st.error("❌ Loan Rejected")
+
+    # =========================
+    # RISK SCORE (ADDED BACK)
+    # =========================
+    risk_score = int(prob[0][0] * 100)
+
+    st.subheader("📊 Risk Score")
+
+    if risk_score > 70:
+        st.error(f"High Risk: {risk_score}/100 🔴")
+    elif risk_score > 40:
+        st.warning(f"Medium Risk: {risk_score}/100 🟠")
+    else:
+        st.success(f"Low Risk: {risk_score}/100 🟢")
+
+    # =========================
+    # CREATE input_df
+    # =========================
+    input_df = pd.DataFrame(input_data, columns=[
+        'dependents', 'education', 'self_employed',
+        'income', 'loan_amount', 'loan_term',
+        'cibil', 'res_assets', 'com_assets',
+        'lux_assets', 'bank_assets', 'total_assets'
+    ])
+
+    # =========================
+    # SHAP
+    # =========================
+    shap_values = explainer(input_df)
+
+    st.subheader("🔍 Prediction Explanation")
+
+    fig, ax = plt.subplots()
+    shap.plots.waterfall(shap_values[0, :, 1], show=False)
+    st.pyplot(fig)
+
+    # =========================
+    # SIMPLE EXPLANATION
+    # =========================
+    st.subheader("🧠 Simple Explanation")
+
+    features = list(input_df.columns)
+    values = shap_values.values[0, :, 1]
+
+    impact = [(features[i], values[i]) for i in range(len(features))]
+    impact = sorted(impact, key=lambda x: abs(x[1]), reverse=True)
+
+    top_features = impact[:3]
+
+    for feature, val in top_features:
+        if val > 0:
+            st.write(f"✔ {feature} increased approval chances")
+        else:
+            st.write(f"❌ {feature} increased risk")
 
 # Footer
 st.markdown("---")
